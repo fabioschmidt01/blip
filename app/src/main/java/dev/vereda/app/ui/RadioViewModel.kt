@@ -216,5 +216,5 @@ fun Reject.pt(): String = when (this) {
     Reject.TooLong -> "Isso não cabe no rádio."
     Reject.RadioOff -> "O rádio ainda não está ligado."
     Reject.UnknownPeer -> "Esse rádio ainda não se apresentou."
-    Reject.NoKey -> "Entra na sala com a senha antes de falar."
+    Reject.NoKey -> "Falta a chave para cifrar isso."
 }

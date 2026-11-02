@@ -20,6 +20,19 @@ class FramesTest {
     }
 
     @Test
+    fun roomMediaHidesTheBytes() {
+        val nonce = ByteArray(12) { 9 }
+        val photo = byteArrayOf(1, 2, 3, 9, 9)
+        val sealed = MediaSeal.sealRoom("segredo", "sala-1", "image/jpeg", photo, nonce)
+        assertTrue("image/jpeg".encodeToByteArray().toList() !in sealed.toList().windowed(10))
+        val open = MediaSeal.openRoom("segredo", "sala-1", sealed)
+        assertNotNull(open)
+        assertEquals("image/jpeg", open.first)
+        assertEquals(photo.toList(), open.second.toList())
+        assertTrue(MediaSeal.openRoom("outra", "sala-1", sealed) == null)
+    }
+
+    @Test
     fun roomPasswordRoundTrip() {
         val key = RoomCipher.key("segredo", "sala-1")
         val nonce = ByteArray(12) { 3 }

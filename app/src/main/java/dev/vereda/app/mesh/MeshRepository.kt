@@ -7,6 +7,7 @@ import dev.vereda.app.data.Profile
 import dev.vereda.app.data.VeredaDatabase
 import dev.vereda.app.data.RoomEntity
 import dev.vereda.core.Identity
+import dev.vereda.core.MediaSeal
 import dev.vereda.core.MeshEngine
 import dev.vereda.core.MeshEvent
 import dev.vereda.core.MeshLimits
@@ -240,7 +241,8 @@ class MeshRepository(
     suspend fun sendMedia(conversation: String, mime: String, bytes: ByteArray, wave: String? = null): SendResult {
         val current = engine ?: return SendResult.Rejected(Reject.RadioOff)
         val direct = if (conversation.length == 64 && conversation.all { it in '0'..'9' || it in 'a'..'f' }) conversation else null
-        val result = current.sendMedia(conversation, mime, bytes, direct)
+        val wire = sealRoomMedia(conversation, mime, bytes) ?: return SendResult.Rejected(Reject.NoKey)
+        val result = current.sendMedia(conversation, wire.first, wire.second, direct)
         if (result is SendResult.Queued) {
             val path = writeMedia(conversation, result.id, mime, bytes)
             val audio = mime.startsWith("audio")
@@ -270,6 +272,22 @@ class MeshRepository(
         db.messages().mediaPaths(conversation).forEach { path -> File(path).delete() }
         db.messages().deleteConversation(conversation)
         logLine("histórico apagado")
+    }
+
+    private suspend fun sealRoomMedia(conversation: String, mime: String, bytes: ByteArray): Pair<String, ByteArray>? {
+        if (!conversation.startsWith("room:")) return mime to bytes
+        val room = db.rooms().get(conversation.removePrefix("room:")) ?: return mime to bytes
+        if (!room.hasPassword) return mime to bytes
+        val secret = room.secret ?: return null
+        val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        return MediaSeal.ROOM to MediaSeal.sealRoom(secret, room.id, mime, bytes, nonce)
+    }
+
+    private suspend fun openRoomMedia(conversation: String, mime: String, bytes: ByteArray): Pair<String, ByteArray>? {
+        if (mime != MediaSeal.ROOM) return mime to bytes
+        if (!conversation.startsWith("room:")) return null
+        val secret = db.rooms().get(conversation.removePrefix("room:"))?.secret ?: return null
+        return MediaSeal.openRoom(secret, conversation.removePrefix("room:"), bytes)
     }
 
     private suspend fun handle(event: MeshEvent) {
@@ -308,17 +326,21 @@ class MeshRepository(
             }
             is MeshEvent.RoomPost -> storeRoomPost(event)
             is MeshEvent.MediaReady -> {
-                val path = writeMedia(event.conversation, event.id, event.mime, event.bytes)
+                val opened = openRoomMedia(event.conversation, event.mime, event.bytes) ?: return
+                val mime = opened.first
+                val bytes = opened.second
+                val conversation = if (event.conversation == identity.peerId) event.sender else event.conversation
+                val path = writeMedia(conversation, event.id, mime, bytes)
                 db.messages().insert(
                     MessageEntity(
                         id = event.id,
-                        conversation = event.conversation,
+                        conversation = conversation,
                         senderId = event.sender,
-                        body = if (event.mime.startsWith("audio")) "Áudio" else "Imagem",
+                        body = if (mime.startsWith("audio")) "Áudio" else "Imagem",
                         sentAt = event.at,
                         outgoing = false,
                         status = "sent",
-                        kind = if (event.mime.startsWith("audio")) "audio" else "image",
+                        kind = if (mime.startsWith("audio")) "audio" else "image",
                         mediaPath = path,
                     ),
                 )

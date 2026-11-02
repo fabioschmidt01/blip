@@ -140,6 +140,44 @@ object PlaceFrames {
     }
 }
 
+object MediaSeal {
+    const val DIRECT = "application/x-blip-seal"
+    const val ROOM = "application/x-blip-room"
+
+    fun pack(mime: String, bytes: ByteArray): ByteArray {
+        val mimeBytes = mime.encodeToByteArray()
+        require(mimeBytes.size in 1..40)
+        val out = ByteArray(1 + mimeBytes.size + bytes.size)
+        out[0] = mimeBytes.size.toByte()
+        mimeBytes.copyInto(out, 1)
+        bytes.copyInto(out, 1 + mimeBytes.size)
+        return out
+    }
+
+    fun unpack(payload: ByteArray): Pair<String, ByteArray>? {
+        if (payload.isEmpty()) return null
+        val mimeLen = payload[0].toInt() and 0xFF
+        if (mimeLen == 0 || payload.size < 1 + mimeLen) return null
+        val mime = payload.copyOfRange(1, 1 + mimeLen).toString(Charsets.UTF_8)
+        if (mime.isEmpty()) return null
+        return mime to payload.copyOfRange(1 + mimeLen, payload.size)
+    }
+
+    fun sealRoom(password: String, roomId: String, mime: String, bytes: ByteArray, nonce: ByteArray): ByteArray {
+        val key = RoomCipher.key(password, roomId)
+        val sealed = RoomCipher.seal(key, roomId, pack(mime, bytes), nonce)
+        return nonce.copyOf(12) + sealed
+    }
+
+    fun openRoom(password: String, roomId: String, payload: ByteArray): Pair<String, ByteArray>? {
+        if (payload.size < 13) return null
+        val nonce = payload.copyOf(12)
+        val plain = RoomCipher.open(RoomCipher.key(password, roomId), roomId, payload.copyOfRange(12, payload.size), nonce)
+            ?: return null
+        return unpack(plain)
+    }
+}
+
 object RoomCipher {
     fun key(password: String, roomId: String): ByteArray {
         val spec = PBEKeySpec(password.toCharArray(), roomId.encodeToByteArray(), 50_000, 256)

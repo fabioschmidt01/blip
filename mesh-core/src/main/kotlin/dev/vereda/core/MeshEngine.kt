@@ -178,22 +178,39 @@ class MeshEngine(
     suspend fun sendMedia(conversation: String, mime: String, bytes: ByteArray, directTo: String?): SendResult {
         if (!started) return SendResult.Rejected(Reject.RadioOff)
         if (bytes.isEmpty() || bytes.size > MeshLimits.MAX_MEDIA_BYTES) return SendResult.Rejected(Reject.TooLong)
+        val wire = if (directTo != null) sealDirect(directTo, mime, bytes) else Wire(mime, bytes, encrypted = false)
+        if (wire is SendResult.Rejected) return wire
+        val sealed = wire as Wire
         val mediaId = ByteArray(16).also { random.nextBytes(it) }
-        val parts = bytes.toList().chunked(MeshLimits.MEDIA_CHUNK).map { it.toByteArray() }
+        val parts = sealed.bytes.toList().chunked(MeshLimits.MEDIA_CHUNK).map { it.toByteArray() }
         var last: SendResult = SendResult.Rejected(Reject.Empty)
         parts.forEachIndexed { index, part ->
-            val payload = MediaFrames.write(mediaId, conversation, mime, index, parts.size, part)
-            val recipient = directTo
-            val packet = originate(PacketType.MEDIA, MeshLimits.MEDIA_TTL, recipient, false, false, payload)
-            if (recipient == null) dispatch(packet) else {
+            val payload = MediaFrames.write(mediaId, conversation, sealed.mime, index, parts.size, part)
+            val packet = originate(PacketType.MEDIA, MeshLimits.MEDIA_TTL, directTo, sealed.encrypted, false, payload)
+            if (directTo == null) dispatch(packet) else {
                 outbox.enqueue(packet.id, PacketCodec.encode(packet), packet.timestamp)
                 flushOutbox(countAttempt = false)
             }
             last = SendResult.Queued(Hex.encode(mediaId), packet.timestamp)
         }
-        log("mídia para $conversation")
+        log(if (sealed.encrypted) "mídia cifrada para $conversation" else "mídia para $conversation")
         return last
     }
+
+    private suspend fun sealDirect(peerId: String, mime: String, bytes: ByteArray): Any {
+        val peer = mutex.withLock { directory[peerId] } ?: return SendResult.Rejected(Reject.UnknownPeer)
+        if (peer.encPublicHex.length != 64) return SendResult.Rejected(Reject.NoKey)
+        val sealed = SealedBox.seal(
+            identity.signPublic(),
+            Hex.decode(peer.encPublicHex),
+            MediaSeal.pack(mime, bytes),
+            random,
+        )
+        if (sealed.size > MeshLimits.MAX_MEDIA_BYTES) return SendResult.Rejected(Reject.TooLong)
+        return Wire(MediaSeal.DIRECT, sealed, encrypted = true)
+    }
+
+    private class Wire(val mime: String, val bytes: ByteArray, val encrypted: Boolean)
 
     private fun rejectText(text: String): SendResult {
         val reason = if (text.trim().isEmpty()) Reject.Empty else Reject.TooLong
@@ -330,6 +347,7 @@ class MeshEngine(
     }
 
     private fun deliverMedia(packet: Packet) {
+        if (packet.recipient != null && packet.recipient != identity.peerId) return
         val part = MediaFrames.read(packet.payload) ?: return
         val key = packet.sender + ":" + part.mediaId
         val slots = mediaIn.getOrPut(key) { arrayOfNulls(part.count) }
@@ -338,17 +356,32 @@ class MeshEngine(
         if (slots.any { it == null }) return
         val all = slots.fold(ByteArray(0)) { acc, chunk -> acc + chunk!! }
         mediaIn.remove(key)
+        val opened = if (part.mime == MediaSeal.DIRECT) openDirect(packet.sender, all) else (part.mime to all)
+        if (opened == null) {
+            log("mídia ilegível")
+            return
+        }
         emit(
             MeshEvent.MediaReady(
                 id = part.mediaId,
                 sender = packet.sender,
                 conversation = part.conversation,
-                mime = part.mime,
-                bytes = all,
+                mime = opened.first,
+                bytes = opened.second,
                 at = packet.timestamp,
             ),
         )
         log("mídia de ${packet.sender.take(8)}")
+    }
+
+    private fun openDirect(sender: String, sealed: ByteArray): Pair<String, ByteArray>? {
+        val senderKey = try {
+            Hex.decode(sender)
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        val plain = identity.open(senderKey, sealed) ?: return null
+        return MediaSeal.unpack(plain)
     }
 
     private suspend fun deliverAck(packet: Packet) {

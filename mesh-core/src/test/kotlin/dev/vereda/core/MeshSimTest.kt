@@ -80,6 +80,42 @@ class MeshSimTest {
     }
 
     @Test
+    fun directMediaStaysSealedUntilTheRecipient() = runTest {
+        val mesh = SimMesh(backgroundScope)
+        val ana = mesh.add("Ana")
+        val bia = mesh.add("Bia")
+        val caio = mesh.add("Caio")
+        val atCaio = mutableListOf<MeshEvent>()
+        val atBia = mutableListOf<MeshEvent>()
+        backgroundScope.launch { caio.engine.events.collect { atCaio += it } }
+        backgroundScope.launch { bia.engine.events.collect { atBia += it } }
+        runCurrent()
+        mesh.connect("Ana", "Bia")
+        runCurrent()
+        mesh.connect("Bia", "Caio")
+        runCurrent()
+
+        val secret = byteArrayOf(9, 8, 7, 6, 5, 4, 3, 2)
+        val sent = ana.engine.sendMedia(caio.identity.peerId, "audio/mp4", secret, caio.identity.peerId)
+        assertIs<SendResult.Queued>(sent)
+        runCurrent()
+
+        val ready = atCaio.filterIsInstance<MeshEvent.MediaReady>()
+        assertEquals(1, ready.size)
+        assertEquals("audio/mp4", ready.single().mime)
+        assertEquals(secret.toList(), ready.single().bytes.toList())
+        assertTrue(atBia.none { it is MeshEvent.MediaReady })
+        val packets = bia.transport.wire.mapNotNull { PacketCodec.decode(it.second) }
+            .filter { it.type == PacketType.MEDIA }
+        assertTrue(packets.isNotEmpty())
+        packets.forEach { packet ->
+            assertTrue(packet.encrypted)
+            assertEquals(caio.identity.peerId, packet.recipient)
+            assertTrue(secret.toList() !in packet.payload.toList().windowed(secret.size))
+        }
+    }
+
+    @Test
     fun badSignatureIsNotRelayed() = runTest {
         val mesh = SimMesh(backgroundScope)
         mesh.add("Ana")

@@ -34,3 +34,5 @@ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ```
 
 O APK de debug sai em `app/build/outputs/apk/debug/app-debug.apk`.
+
+Cada push na `main` também gera esse APK no GitHub, na ação **APK**, em Artifacts, com o nome `blip-debug`.
