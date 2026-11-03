@@ -41,15 +41,57 @@ A room with a password seals its text and media with that password: PBKDF2-HMAC-
 
 The public channel, place rooms, and rooms without a password are signed, but anyone who receives them can read them. The name can be seen too. What is saved on this phone is not locked.
 
-## Internet
+## Relay
 
-There is no public relay. `relay/relay.py` runs a local relay on port 8791. The app talks to `http://127.0.0.1:8791`. On Waydroid it uses `http://192.168.240.1:8791`.
+Blip does not ship a public relay. To carry a conversation across the internet, run `relay/relay.py` on your own server. It is a Python process, standard library only, that stays up and keeps the queue in memory. It is not a Worker.
+
+The app asks that relay every 2 seconds. Three calls:
+
+- `POST /v1/hello` with `{"id","name"}`. Marks the phone as present. A phone that stays quiet for 25 seconds drops off the list.
+- `POST /v1/push` with `{"id","to","packet"}`. `packet` is the Blip packet in base64. Each destination queue keeps at most 200 packets. A packet larger than 300,000 base64 characters is refused.
+- `GET /v1/pull?id=` returns who is present and takes that phone's queued packets.
+
+The relay does not open packets. Direct chats stay sealed. The public channel can be read by anyone on that path, including whoever runs the server. Place rooms are not sent. There is no password: anyone who can reach the address can send. The queue is lost when the process restarts. If the relay is down, messages wait on the phone.
+
+A normal phone talks to `http://127.0.0.1:8791`. Waydroid talks to `http://192.168.240.1:8791`. Cleartext HTTP is allowed only for those addresses and for `localhost`.
+
+On this computer:
 
 ```bash
 python3 relay/relay.py
 ```
 
-On a phone plugged in over USB, the relay on this computer is reachable only after `adb reverse tcp:8791 tcp:8791`. If the relay is down, messages wait. Direct chats stay sealed on that path. The public channel can be read by anyone on it, including the relay.
+It listens on `0.0.0.0:8791`. With the phone on USB:
+
+```bash
+adb reverse tcp:8791 tcp:8791
+```
+
+For a server on the internet, copy `relay/relay.py` to the machine and keep the process running. Python 3 is enough. Nothing to install with pip.
+
+```bash
+python3 relay/relay.py
+```
+
+A systemd service keeps it up after a reboot. Change the script path.
+
+```ini
+[Unit]
+Description=Blip relay
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/blip/relay.py
+Restart=on-failure
+User=blip
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Open port 8791 only to the proxy, not to the whole internet. In front, Caddy or nginx with HTTPS forwards `/v1/hello`, `/v1/push`, and `/v1/pull` to `127.0.0.1:8791`. The phone needs `https://`, because a public address over plain HTTP is blocked.
+
+The address is `relayBase()` in `app/src/main/java/dev/vereda/app/mesh/InternetMeshTransport.kt`. Point it at `https://your.domain` and build the APK again. Until that change, the app keeps talking only to the local relay.
 
 ## Build
 
