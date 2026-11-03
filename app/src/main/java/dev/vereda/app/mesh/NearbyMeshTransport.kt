@@ -16,6 +16,7 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import dev.vereda.app.R
 import dev.vereda.core.MeshTransport
 import dev.vereda.core.TransportEvent
 import kotlinx.coroutines.CoroutineScope
@@ -124,14 +125,14 @@ class NearbyMeshTransport(
                 }
             }
             running = true
-            emit(TransportEvent.Ready("Rádio ligado. Procurando aparelhos."))
+            emit(TransportEvent.Ready(appContext.getString(R.string.radio_ready)))
         } catch (error: Exception) {
             note("falha ao ligar", error)
             val detail = error.message.orEmpty()
             val message = when {
-                "ACCESS_WIFI_STATE" in detail -> "O rádio precisa da permissão de estado do Wi-Fi."
-                "MISSING_PERMISSION" in detail -> "Falta uma permissão para o rádio ligar."
-                else -> "Não consegui ligar o rádio. Confere o Bluetooth e o Google Play Services."
+                "ACCESS_WIFI_STATE" in detail -> appContext.getString(R.string.wifi_permission)
+                "MISSING_PERMISSION" in detail -> appContext.getString(R.string.missing_permission)
+                else -> appContext.getString(R.string.radio_failed)
             }
             emit(TransportEvent.Failed(message))
         }
@@ -203,10 +204,10 @@ class NearbyMeshTransport(
     }
 
     private fun playMessage(code: Int): String = when (code) {
-        ConnectionResult.SERVICE_MISSING -> "Este aparelho não tem Google Play Services."
-        ConnectionResult.SERVICE_VERSION_UPDATE_REQUIRED -> "Atualiza o Google Play Services para o rádio funcionar."
-        ConnectionResult.SERVICE_DISABLED -> "O Google Play Services está desativado."
-        else -> "Google Play Services indisponível ($code)."
+        ConnectionResult.SERVICE_MISSING -> appContext.getString(R.string.play_missing)
+        ConnectionResult.SERVICE_VERSION_UPDATE_REQUIRED -> appContext.getString(R.string.play_update)
+        ConnectionResult.SERVICE_DISABLED -> appContext.getString(R.string.play_disabled)
+        else -> appContext.getString(R.string.play_unavailable, code)
     }
 
     private companion object {

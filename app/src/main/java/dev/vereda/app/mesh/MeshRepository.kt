@@ -2,8 +2,10 @@ package dev.vereda.app.mesh
 
 import android.content.Context
 import android.util.Log
+import dev.vereda.app.R
 import dev.vereda.app.data.MessageEntity
 import dev.vereda.app.data.Profile
+import kotlinx.coroutines.Job
 import dev.vereda.app.data.VeredaDatabase
 import dev.vereda.app.data.RoomEntity
 import dev.vereda.core.Identity
@@ -50,6 +52,9 @@ class MeshRepository(
     private var engine: MeshEngine? = null
     private var nearby: NearbyMeshTransport? = null
     private var generation = 0
+    private var life: Job? = null
+    @Volatile
+    private var configuring = false
 
     private val _peers = MutableStateFlow<List<PeerSnapshot>>(emptyList())
     val peers: StateFlow<List<PeerSnapshot>> = _peers.asStateFlow()
@@ -57,7 +62,7 @@ class MeshRepository(
     val linkCount: StateFlow<Int> = _linkCount.asStateFlow()
     private val _phase = MutableStateFlow(RadioPhase.OFF)
     val phase: StateFlow<RadioPhase> = _phase.asStateFlow()
-    private val _status = MutableStateFlow("Rádio desligado")
+    private val _status = MutableStateFlow(appContext.getString(R.string.radio_off))
     val status: StateFlow<String> = _status.asStateFlow()
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log.asStateFlow()
@@ -67,12 +72,64 @@ class MeshRepository(
     fun rooms(): Flow<List<RoomEntity>> = db.rooms().observe()
 
     fun ensureStarted() {
+        if (configuring) return
+        startEngine()
+    }
+
+    fun reconfigure() {
+        val old = detach()
+        configuring = true
+        life?.cancel()
+        life = scope.launch {
+            try {
+                old?.stop()
+            } catch (_: Exception) {
+            }
+            configuring = false
+            startEngine()
+        }
+    }
+
+    private fun detach(): MeshEngine? {
         synchronized(this) {
-            if (engine != null) return
+            generation += 1
+            val current = engine ?: return null
+            engine = null
+            nearby = null
+            _phase.value = RadioPhase.OFF
+            _status.value = appContext.getString(R.string.radio_off)
+            _linkCount.value = 0
+            return current
+        }
+    }
+
+    private fun startEngine() {
+        synchronized(this) {
+            if (engine != null || configuring) return
             generation += 1
             val token = generation
-            val name = TextRules.nickname(profile.nickname.value) ?: "sem nome"
-            val transport = NearbyMeshTransport(appContext, name, ::logLine)
+            val name = TextRules.nickname(profile.nickname.value) ?: appContext.getString(R.string.no_name)
+            val internetOnly = profile.reach.value == Profile.REACH_INTERNET
+            val local = if (internetOnly) {
+                null
+            } else {
+                NearbyMeshTransport(appContext, name, ::logLine)
+            }
+            val internet = InternetMeshTransport(
+                context = appContext,
+                selfId = identity.peerId,
+                nameOf = { profile.nickname.value.ifBlank { name } },
+                announceHealth = internetOnly,
+                log = ::logLine,
+            )
+            val transport = if (local == null) {
+                internet
+            } else {
+                CompositeTransport(
+                    parts = listOf(local, internet),
+                    owns = listOf({ !InternetMeshTransport.owns(it) }, { InternetMeshTransport.owns(it) }),
+                )
+            }
             val created = MeshEngine(
                 identity = identity,
                 transport = transport,
@@ -84,10 +141,10 @@ class MeshRepository(
                 log = ::logLine,
             )
             created.prepareNickname(name)
-            nearby = transport
+            nearby = local
             engine = created
             _phase.value = RadioPhase.STARTING
-            _status.value = "Ligando o rádio"
+            _status.value = appContext.getString(R.string.radio_starting)
             scope.launch {
                 created.events.collect { event ->
                     if (token == generation) handle(event)
@@ -107,7 +164,7 @@ class MeshRepository(
                 created.health.collect { health ->
                     if (token != generation) return@collect
                     _phase.value = health.phase
-                    _status.value = health.detail
+                    _status.value = localizeStatus(health.detail)
                 }
             }
             created.start()
@@ -116,6 +173,8 @@ class MeshRepository(
     }
 
     fun stop() {
+        life?.cancel()
+        configuring = false
         val current: MeshEngine
         synchronized(this) {
             generation += 1
@@ -123,7 +182,7 @@ class MeshRepository(
             engine = null
             nearby = null
             _phase.value = RadioPhase.OFF
-            _status.value = "Rádio desligado"
+            _status.value = appContext.getString(R.string.radio_off)
             _linkCount.value = 0
         }
         scope.launch { current.stop() }
@@ -251,7 +310,7 @@ class MeshRepository(
                     id = result.id,
                     conversation = conversation,
                     senderId = identity.peerId,
-                    body = if (audio) wave?.takeIf { Waveform.decode(it) != null } ?: "Áudio" else "Imagem",
+                    body = if (audio) wave?.takeIf { Waveform.decode(it) != null } ?: appContext.getString(R.string.audio) else appContext.getString(R.string.image),
                     sentAt = result.timestamp,
                     outgoing = true,
                     status = "sent",
@@ -288,6 +347,13 @@ class MeshRepository(
         if (!conversation.startsWith("room:")) return null
         val secret = db.rooms().get(conversation.removePrefix("room:"))?.secret ?: return null
         return MediaSeal.openRoom(secret, conversation.removePrefix("room:"), bytes)
+    }
+
+    private fun localizeStatus(detail: String): String = when (detail) {
+        "Ligando o rádio" -> appContext.getString(R.string.radio_starting)
+        "Rádio desligado" -> appContext.getString(R.string.radio_off)
+        "Rádio ligado. Procurando aparelhos." -> appContext.getString(R.string.radio_ready)
+        else -> detail
     }
 
     private suspend fun handle(event: MeshEvent) {
@@ -336,7 +402,7 @@ class MeshRepository(
                         id = event.id,
                         conversation = conversation,
                         senderId = event.sender,
-                        body = if (mime.startsWith("audio")) "Áudio" else "Imagem",
+                        body = if (mime.startsWith("audio")) appContext.getString(R.string.audio) else appContext.getString(R.string.image),
                         sentAt = event.at,
                         outgoing = false,
                         status = "sent",

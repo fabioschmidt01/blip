@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import dev.vereda.app.MainActivity
 import dev.vereda.app.R
 import dev.vereda.app.VeredaApp
+import dev.vereda.app.data.Profile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,8 +51,8 @@ class MeshService : Service() {
             combine(repository.linkCount, repository.phase) { links, _ -> links }.collect { links ->
                 val text = when (links) {
                     0 -> getString(R.string.mesh_searching)
-                    1 -> "1 rádio no alcance"
-                    else -> "$links rádios no alcance"
+                    1 -> getString(R.string.radio_one)
+                    else -> getString(R.string.radio_many, links)
                 }
                 val manager = getSystemService(NotificationManager::class.java)
                 manager.notify(NOTIFICATION_ID, notification(text))
@@ -65,12 +66,21 @@ class MeshService : Service() {
         super.onDestroy()
     }
 
+    private fun serviceType(): Int {
+        val reach = (application as VeredaApp).graph.profile.reach.value
+        return if (reach == Profile.REACH_INTERNET) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        }
+    }
+
     private fun startInForeground(notification: Notification) {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
             notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+            serviceType(),
         )
     }
 
@@ -79,7 +89,7 @@ class MeshService : Service() {
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, getString(R.string.mesh_channel), NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Mantém o rádio ligado."
+                    description = getString(R.string.channel_keeps_radio)
                     setShowBadge(false)
                 },
             )

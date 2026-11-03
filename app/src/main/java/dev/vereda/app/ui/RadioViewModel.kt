@@ -7,7 +7,10 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import dev.vereda.app.AppLocales
 import dev.vereda.app.MainActivity
+import dev.vereda.app.R
 import dev.vereda.app.VeredaApp
 import dev.vereda.app.service.MeshService
 import dev.vereda.core.MeshLimits
@@ -34,6 +37,9 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
     val fingerprint = graph.identity.fingerprint()
     val ready = graph.profile.ready
     val nickname = graph.profile.nickname
+    val reach = graph.profile.reach
+    val language = graph.profile.language
+    val showIntro = graph.profile.showIntro
     val peers = repository.peers
     val linkCount = repository.linkCount
     val phase = repository.phase
@@ -70,17 +76,33 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun completeOnboarding(name: String): String? {
-        val clean = TextRules.nickname(name) ?: return "Usa um nome curto, de até 32 bytes."
+        val clean = TextRules.nickname(name) ?: return str(R.string.name_short)
         graph.profile.setNickname(clean)
         graph.profile.markReady()
         return null
     }
 
     fun rename(name: String): String? {
-        val clean = TextRules.nickname(name) ?: return "Usa um nome curto, de até 32 bytes."
+        val clean = TextRules.nickname(name) ?: return str(R.string.name_short)
         graph.profile.setNickname(clean)
         viewModelScope.launch { repository.rename(clean) }
         return null
+    }
+
+    fun setReach(mode: String) {
+        graph.profile.setReach(mode)
+        repository.reconfigure()
+        MeshService.start(getApplication())
+    }
+
+    fun setLanguage(context: Context, tag: String) {
+        if (graph.profile.language.value == tag) return
+        graph.profile.setLanguage(tag)
+        AppLocales.apply(context, tag)
+    }
+
+    fun dismissIntro() {
+        graph.profile.markIntroSeen()
     }
 
     fun sendCurrent(text: String) {
@@ -104,7 +126,7 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
                     openRoom(result.id, name.trim())
                     _banner.value = null
                 }
-                is SendResult.Rejected -> _banner.value = result.reason.pt()
+                is SendResult.Rejected -> _banner.value = result.reason.pt(getApplication())
             }
         }
     }
@@ -134,7 +156,7 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val bytes = withContext(Dispatchers.IO) { compressImage(uri) }
             if (bytes == null) {
-                _banner.value = "Não consegui ler essa imagem."
+                _banner.value = str(R.string.image_fail)
                 return@launch
             }
             launchResult(repository.sendMedia(conversation, "image/jpeg", bytes))
@@ -152,8 +174,8 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
                 if (tooBig) ByteArray(0) else data
             }
             when {
-                bytes == null -> _banner.value = "Segura um pouco mais."
-                bytes.isEmpty() -> _banner.value = "Esse áudio não cabe no rádio."
+                bytes == null -> _banner.value = str(R.string.hold_longer)
+                bytes.isEmpty() -> _banner.value = str(R.string.audio_too_big)
                 else -> launchResult(repository.sendMedia(conversation, "audio/mp4", bytes, wave))
             }
         }
@@ -189,7 +211,7 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
     private fun launchResult(result: SendResult) {
         _banner.value = when (result) {
             is SendResult.Queued -> null
-            is SendResult.Rejected -> result.reason.pt()
+            is SendResult.Rejected -> result.reason.pt(getApplication())
         }
     }
 
@@ -211,10 +233,12 @@ class RadioViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
-fun Reject.pt(): String = when (this) {
-    Reject.Empty -> "Escreve alguma coisa."
-    Reject.TooLong -> "Isso não cabe no rádio."
-    Reject.RadioOff -> "O rádio ainda não está ligado."
-    Reject.UnknownPeer -> "Esse rádio ainda não se apresentou."
-    Reject.NoKey -> "Falta a chave para cifrar isso."
+private fun RadioViewModel.str(id: Int) = getApplication<Application>().getString(id)
+
+fun Reject.pt(context: android.content.Context): String = when (this) {
+    Reject.Empty -> context.getString(R.string.reject_empty)
+    Reject.TooLong -> context.getString(R.string.reject_too_long)
+    Reject.RadioOff -> context.getString(R.string.reject_off)
+    Reject.UnknownPeer -> context.getString(R.string.reject_unknown)
+    Reject.NoKey -> context.getString(R.string.reject_nokey)
 }

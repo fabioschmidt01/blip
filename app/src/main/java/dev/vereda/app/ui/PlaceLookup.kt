@@ -59,7 +59,7 @@ object PlaceLookup {
             connection.connectTimeout = 8_000
             connection.readTimeout = 8_000
             connection.setRequestProperty("User-Agent", "Blip/0.1 (Android)")
-            connection.setRequestProperty("Accept-Language", "pt-BR")
+            connection.setRequestProperty("Accept-Language", Locale.getDefault().toLanguageTag())
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()

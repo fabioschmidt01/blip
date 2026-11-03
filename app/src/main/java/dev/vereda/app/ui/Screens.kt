@@ -5,12 +5,15 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import dev.vereda.app.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +25,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -33,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
@@ -45,13 +51,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.vereda.app.data.MessageEntity
 import kotlinx.coroutines.isActive
@@ -71,7 +83,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
         if (name != null && RadioPermissions.missingRadio(context).isEmpty()) {
             error = onEnter(name)
         } else {
-            error = "Sem a permissão de aparelhos por perto o rádio não liga."
+            error = context.getString(R.string.permission_denied)
         }
     }
     Column(
@@ -84,13 +96,13 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
                 painter = painterResource(R.drawable.blip_logo),
-                contentDescription = "Blip",
+                contentDescription = stringResource(R.string.app_name),
                 modifier = Modifier.size(148.dp),
                 alignment = Alignment.Center,
                 contentScale = ContentScale.Fit,
             )
             Text(
-                "Blip",
+                stringResource(R.string.app_name),
                 color = Bone,
                 fontFamily = Display,
                 fontWeight = FontWeight.SemiBold,
@@ -99,7 +111,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Fala com quem está perto.\nCom ou sem internet.",
+                stringResource(R.string.tagline),
                 color = BoneDim,
                 fontFamily = Display,
                 fontSize = 20.sp,
@@ -108,7 +120,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("SEU NOME NO RÁDIO", color = BoneDim, fontFamily = Mono, fontSize = 11.sp, letterSpacing = 1.2.sp)
+            Text(stringResource(R.string.your_name), color = BoneDim, fontFamily = Mono, fontSize = 11.sp, letterSpacing = 1.2.sp)
             BasicTextField(
                 value = draft,
                 onValueChange = { if (it.length <= 32) draft = it },
@@ -122,7 +134,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
                     .padding(horizontal = 16.dp, vertical = 16.dp),
             )
             Text(
-                "O Android pede acesso aos aparelhos por perto para achar outros rádios. A notificação fica no alto enquanto o Blip está ligado.",
+                stringResource(R.string.permission_why),
                 color = BoneDim,
                 fontFamily = Display,
                 fontSize = 15.sp,
@@ -131,7 +143,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
             if (error != null) {
                 Text(error ?: "", color = Clay, fontFamily = Display, fontSize = 15.sp)
                 Text(
-                    "Abrir configurações",
+                    stringResource(R.string.open_settings),
                     color = Phosphor,
                     fontFamily = Mono,
                     fontSize = 13.sp,
@@ -148,7 +160,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
                 onClick = {
                     val clean = TextRules.nickname(draft)
                     if (clean == null) {
-                        error = "Usa um nome curto, de até 32 bytes."
+                        error = context.getString(R.string.name_short)
                         return@Button
                     }
                     pending = clean
@@ -163,7 +175,7 @@ fun OnboardingScreen(onEnter: (String) -> String?) {
                 colors = ButtonDefaults.buttonColors(containerColor = Phosphor, contentColor = Ink),
                 modifier = Modifier.fillMaxWidth().height(56.dp),
             ) {
-                Text("Ligar o rádio", fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                Text(stringResource(R.string.start_radio), fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
             }
         }
     }
@@ -183,7 +195,7 @@ fun ChannelScreen(vm: RadioViewModel) {
     val capture = rememberMic(
         context,
         onTake = { take -> vm.sendAudioCurrent(take.file, take.wave) },
-        onShort = { vm.report("Segura um pouco mais.") },
+        onShort = { vm.report(context.getString(R.string.hold_longer)) },
     )
     var showCreate by remember { mutableStateOf(false) }
     var lockTarget by remember { mutableStateOf<dev.vereda.app.data.RoomEntity?>(null) }
@@ -192,9 +204,9 @@ fun ChannelScreen(vm: RadioViewModel) {
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            if (!capture.start()) vm.report("Não consegui abrir o microfone.")
+            if (!capture.start()) vm.report(context.getString(R.string.mic_fail))
         } else {
-            vm.report("Sem o microfone não dá para gravar.")
+            vm.report(context.getString(R.string.mic_denied))
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -214,15 +226,20 @@ fun ChannelScreen(vm: RadioViewModel) {
             onCreate = { showCreate = true },
             onClear = { vm.clearConversation(conversation) },
         )
+        val youLabel = stringResource(R.string.you)
         TalkScreen(
             messages = messages,
             title = null,
-            placeholder = if (title == "Aqui") "Fala no canal" else "Fala em $title",
+            placeholder = if (conversation == dev.vereda.core.MeshLimits.CONVERSATION_PUBLIC) {
+                stringResource(R.string.say_channel)
+            } else {
+                stringResource(R.string.say_room, title)
+            },
             banner = banner,
-            empty = "Ninguém falou ainda. Quando outro aparelho entrar no alcance, a frase aparece aqui.",
+            empty = stringResource(R.string.empty_channel),
             nameOf = { message ->
                 when {
-                    message.senderId == vm.selfId -> nickname.ifBlank { "você" }
+                    message.senderId == vm.selfId -> nickname.ifBlank { youLabel }
                     else -> peers.firstOrNull { it.id == message.senderId }?.nickname ?: message.senderId.take(8)
                 }
             },
@@ -246,7 +263,7 @@ fun ChannelScreen(vm: RadioViewModel) {
     }
     if (showCreate) {
         RoomDialog(
-            title = "Nova sala",
+            title = stringResource(R.string.new_room_title),
             onDismiss = { showCreate = false },
             onConfirm = { name, password ->
                 showCreate = false
@@ -275,16 +292,16 @@ fun ConversationScreen(vm: RadioViewModel, peerId: String, onBack: () -> Unit) {
     val capture = rememberMic(
         context,
         onTake = { take -> vm.sendAudio(peerId, take.file, take.wave) },
-        onShort = { vm.report("Segura um pouco mais.") },
+        onShort = { vm.report(context.getString(R.string.hold_longer)) },
     )
     val pickDirect = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.sendImage(peerId, uri)
     }
     val directMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            if (!capture.start()) vm.report("Não consegui abrir o microfone.")
+            if (!capture.start()) vm.report(context.getString(R.string.mic_fail))
         } else {
-            vm.report("Sem o microfone não dá para gravar.")
+            vm.report(context.getString(R.string.mic_denied))
         }
     }
     val thread = remember(peerId) { vm.direct(peerId) }
@@ -308,21 +325,23 @@ fun ConversationScreen(vm: RadioViewModel, peerId: String, onBack: () -> Unit) {
             Column(Modifier.padding(start = 12.dp)) {
                 Text(peer?.nickname ?: peerId.take(8), color = Bone, fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
                 Text(
-                    if (peer?.direct == true) "cifrada · no alcance" else "cifrada · por outro aparelho",
+                    if (peer?.direct == true) stringResource(R.string.dm_near) else stringResource(R.string.dm_far),
                     color = BoneDim,
                     fontFamily = Mono,
                     fontSize = 11.sp,
                 )
             }
         }
+        val youLabel = stringResource(R.string.you)
+        val radioLabel = stringResource(R.string.peer_radio)
         TalkScreen(
             messages = messages,
             title = null,
-            placeholder = "Mensagem direta",
+            placeholder = stringResource(R.string.dm_placeholder),
             banner = banner,
-            empty = "Isto só abre no aparelho de ${peer?.nickname ?: "destino"}.",
+            empty = stringResource(R.string.dm_empty, peer?.nickname ?: stringResource(R.string.dm_target)),
             nameOf = { message ->
-                if (message.senderId == vm.selfId) nickname.ifBlank { "você" } else peer?.nickname ?: "rádio"
+                if (message.senderId == vm.selfId) nickname.ifBlank { youLabel } else peer?.nickname ?: radioLabel
             },
             mine = { it.senderId == vm.selfId },
             onSend = { vm.sendDirect(peerId, it) },
@@ -342,7 +361,7 @@ fun ConversationScreen(vm: RadioViewModel, peerId: String, onBack: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         Text(
-            "Limpar este chat",
+            stringResource(R.string.clear_chat),
             color = Clay,
             fontFamily = Mono,
             fontSize = 12.sp,
@@ -398,7 +417,7 @@ private fun TalkScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                 if (onPickImage != null) {
                     Text(
-                        "Imagem",
+                        stringResource(R.string.image),
                         color = Ink,
                         fontFamily = Mono,
                         fontSize = 12.sp,
@@ -411,7 +430,7 @@ private fun TalkScreen(
                 }
                 if (onToggleRecord != null) {
                     Text(
-                        if (recording) "Parar e enviar" else "Áudio",
+                        if (recording) stringResource(R.string.stop_send) else stringResource(R.string.audio),
                         color = if (recording) Bone else Ink,
                         fontFamily = Mono,
                         fontSize = 12.sp,
@@ -444,10 +463,10 @@ private fun TalkScreen(
 @Composable
 fun PeopleScreen(peers: List<PeerSnapshot>, onOpen: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        ScreenTitle("PERTO DE VOCÊ", "Pessoas")
-        Text("Toque para abrir uma conversa cifrada.", color = BoneDim, fontFamily = Display, fontSize = 15.sp)
+        ScreenTitle(stringResource(R.string.people_kicker), stringResource(R.string.people_title))
+        Text(stringResource(R.string.people_hint), color = BoneDim, fontFamily = Display, fontSize = 15.sp)
         if (peers.isEmpty()) {
-            EmptyLine("Nenhum rádio por perto. Deixa os dois aparelhos com o Blip aberto.")
+            EmptyLine(stringResource(R.string.people_empty))
             return
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -479,7 +498,7 @@ fun PeopleScreen(peers: List<PeerSnapshot>, onOpen: (String) -> Unit) {
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Text(peer.nickname, color = Bone, fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
                         Text(
-                            if (peer.direct) "no alcance" else "por outro aparelho",
+                            if (peer.direct) stringResource(R.string.in_range) else stringResource(R.string.via_other),
                             color = BoneDim,
                             fontFamily = Mono,
                             fontSize = 12.sp,
@@ -508,97 +527,445 @@ fun RadioScreen(vm: RadioViewModel) {
     val context = LocalContext.current
     val phase by vm.phase.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
+    val peers by vm.peers.collectAsStateWithLifecycle()
+    val banner by vm.banner.collectAsStateWithLifecycle()
+    val messagesFlow = remember { vm.messagesFor(dev.vereda.core.MeshLimits.CONVERSATION_PUBLIC) }
+    val messages by messagesFlow.collectAsStateWithLifecycle(emptyList())
+    val voices = messages.filter { it.kind == "audio" }
+    val capture = rememberMic(
+        context,
+        onTake = { take -> vm.sendAudio(dev.vereda.core.MeshLimits.CONVERSATION_PUBLIC, take.file, take.wave) },
+        onShort = { vm.report(context.getString(R.string.hold_longer)) },
+    )
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            if (!capture.start()) vm.report(context.getString(R.string.mic_fail))
+        } else {
+            vm.report(context.getString(R.string.mic_denied))
+        }
+    }
+    var primed by remember { mutableStateOf(false) }
+    LaunchedEffect(voices.lastOrNull()?.id) {
+        val latest = voices.lastOrNull()
+        if (!primed) {
+            primed = true
+            return@LaunchedEffect
+        }
+        val path = latest?.mediaPath
+        if (latest != null && latest.senderId != vm.selfId && path != null && !capture.active) {
+            VoicePlayback.play(path)
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        ScreenTitle(stringResource(R.string.radio_live), stringResource(R.string.radio_title))
+        Text(
+            stringResource(R.string.radio_hint),
+            color = BoneDim,
+            fontFamily = Display,
+            fontSize = 15.sp,
+            lineHeight = 21.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(status, color = if (phase == RadioPhase.FAILED) Clay else Bone, fontFamily = Mono, fontSize = 12.sp)
+        if (banner != null) {
+            Text(banner ?: "", color = Clay, fontFamily = Display, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (voices.isEmpty()) {
+                item { EmptyLine(stringResource(R.string.radio_empty)) }
+            }
+            items(voices.takeLast(12), key = { it.id }) { message ->
+                val name = if (message.senderId == vm.selfId) {
+                    stringResource(R.string.you)
+                } else {
+                    peers.firstOrNull { it.id == message.senderId }?.nickname ?: message.senderId.take(8)
+                }
+                MessageCard(message, name, message.senderId == vm.selfId, vm::storeWave)
+            }
+        }
+        if (capture.active) LiveWave(capture)
+        Spacer(Modifier.height(12.dp))
+        TalkButton(
+            holding = capture.active,
+            onDown = {
+                vm.clearBanner()
+                if (capture.active) return@TalkButton
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.RECORD_AUDIO,
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!granted) {
+                    micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                } else if (!capture.start()) {
+                    vm.report(context.getString(R.string.mic_fail))
+                }
+            },
+            onUp = {
+                if (!capture.active) return@TalkButton
+                val take = capture.stop()
+                if (take != null) {
+                    vm.sendAudio(dev.vereda.core.MeshLimits.CONVERSATION_PUBLIC, take.file, take.wave)
+                } else {
+                    vm.report(context.getString(R.string.hold_longer))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun TalkButton(holding: Boolean, onDown: () -> Unit, onUp: () -> Unit) {
+    val label = stringResource(if (holding) R.string.radio_release else R.string.radio_hold)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .height(148.dp)
+            .clip(PanelShape)
+            .background(if (holding) Clay else Phosphor)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    onDown()
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
+                        if (event.changes.all { !it.pressed }) break
+                    }
+                    onUp()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (holding) Bone else Ink,
+            fontFamily = Display,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 28.sp,
+        )
+    }
+}
+
+@Composable
+private fun PanicDialog(
+    word: String,
+    onWord: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    var mismatch by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(80)
+        focus.requestFocus()
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(PanelShape)
+                    .background(SurfaceHigh)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    stringResource(R.string.panic),
+                    color = Clay,
+                    fontFamily = Display,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 20.sp,
+                )
+                Text(
+                    stringResource(R.string.panic_hint),
+                    color = if (mismatch) Clay else BoneDim,
+                    fontFamily = Display,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp,
+                )
+                BasicTextField(
+                    value = word,
+                    onValueChange = {
+                        mismatch = false
+                        onWord(it)
+                    },
+                    singleLine = true,
+                    textStyle = TextStyle(color = Bone, fontFamily = Mono, fontSize = 18.sp),
+                    cursorBrush = SolidColor(Clay),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 52.dp)
+                        .clip(Pill)
+                        .background(Night)
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .focusRequester(focus),
+                    decorationBox = { inner ->
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                            if (word.isEmpty()) {
+                                Text("LIMPAR", color = BoneDim, fontFamily = Mono, fontSize = 18.sp)
+                            }
+                            inner()
+                        }
+                    },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ActionButton(stringResource(R.string.cancel), Surface, Bone, onDismiss)
+                    ActionButton(stringResource(R.string.panic_confirm), Clay, Bone) {
+                        if (word.trim() == "LIMPAR") onConfirm() else mismatch = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IntroDialog(onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp)
+                    .clip(PanelShape)
+                    .background(SurfaceHigh)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    stringResource(R.string.intro_title),
+                    color = Bone,
+                    fontFamily = Display,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 26.sp,
+                )
+                Column(
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        stringResource(R.string.intro_body),
+                        color = BoneDim,
+                        fontFamily = Display,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                    )
+                }
+                ActionButton(stringResource(R.string.intro_ok), Phosphor, Ink, onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsScreen(vm: RadioViewModel) {
+    val context = LocalContext.current
+    val reach by vm.reach.collectAsStateWithLifecycle()
+    val phase by vm.phase.collectAsStateWithLifecycle()
+    val status by vm.status.collectAsStateWithLifecycle()
     val log by vm.log.collectAsStateWithLifecycle()
+    val language by vm.language.collectAsStateWithLifecycle()
     val nickname by vm.nickname.collectAsStateWithLifecycle()
     var draft by remember(nickname) { mutableStateOf(nickname) }
     var error by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize()) {
-        ScreenTitle("AJUSTES", "Rádio")
-        Text(status, color = if (phase == RadioPhase.FAILED) Clay else BoneDim, fontFamily = Display, fontSize = 16.sp)
-        Spacer(Modifier.height(16.dp))
-        Column(Modifier.fillMaxWidth().clip(PanelShape).background(Surface).padding(16.dp)) {
-            SectionLabel("IMPRESSÃO")
-            Text(vm.fingerprint, color = Phosphor, fontFamily = Mono, fontSize = 16.sp, lineHeight = 24.sp, modifier = Modifier.padding(top = 8.dp))
-        }
-        Spacer(Modifier.height(12.dp))
-        SectionLabel("NOME")
-        Spacer(Modifier.height(6.dp))
-        BasicTextField(
-            value = draft,
-            onValueChange = { if (it.length <= 32) draft = it },
-            singleLine = true,
-            textStyle = TextStyle(color = Bone, fontFamily = Display, fontSize = 18.sp),
-            cursorBrush = SolidColor(Phosphor),
-            modifier = Modifier.fillMaxWidth().clip(PanelShape).background(Surface).padding(horizontal = 16.dp, vertical = 14.dp),
-        )
-        if (error != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(error ?: "", color = Clay, fontFamily = Display, fontSize = 14.sp)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionButton("Guardar nome", SurfaceHigh, Bone) {
-                error = vm.rename(draft)
-            }
+    var panicOpen by remember { mutableStateOf(false) }
+    var panicWord by remember { mutableStateOf("") }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
+    ) {
+        item {
+            ScreenTitle(stringResource(R.string.settings_kicker), stringResource(R.string.settings_title))
+            SectionLabel(stringResource(R.string.reach_title))
+            Spacer(Modifier.height(8.dp))
+            ReachChoice(
+                title = stringResource(R.string.reach_both),
+                hint = stringResource(R.string.reach_both_hint),
+                selected = reach != dev.vereda.app.data.Profile.REACH_INTERNET,
+                onClick = { vm.setReach(dev.vereda.app.data.Profile.REACH_BOTH) },
+            )
+            Spacer(Modifier.height(8.dp))
+            ReachChoice(
+                title = stringResource(R.string.reach_internet),
+                hint = stringResource(R.string.reach_internet_hint),
+                selected = reach == dev.vereda.app.data.Profile.REACH_INTERNET,
+                onClick = { vm.setReach(dev.vereda.app.data.Profile.REACH_INTERNET) },
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.reach_places),
+                color = BoneDim,
+                fontFamily = Display,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            )
+            Spacer(Modifier.height(20.dp))
+            SectionLabel(stringResource(R.string.link_kicker))
+            Text(
+                stringResource(R.string.link_title),
+                color = Bone,
+                fontFamily = Display,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 28.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+            )
+            Text(status, color = if (phase == RadioPhase.FAILED) Clay else BoneDim, fontFamily = Display, fontSize = 16.sp)
+            Spacer(Modifier.height(12.dp))
             val running = phase == RadioPhase.ON || phase == RadioPhase.STARTING
             ActionButton(
-                label = if (running) "Desligar" else "Ligar",
+                label = if (running) stringResource(R.string.turn_off) else stringResource(R.string.turn_on),
                 container = if (running) SurfaceHigh else Phosphor,
                 content = if (running) Bone else Ink,
             ) {
                 if (running) MeshService.stop(context) else MeshService.start(context)
             }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                stringResource(R.string.battery_hint),
+                color = BoneDim,
+                fontFamily = Display,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            )
+            Spacer(Modifier.height(16.dp))
+            SectionLabel(stringResource(R.string.diary))
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Em alguns aparelhos o rádio para com a tela apagada se a bateria estiver otimizada. Se o outro sumir, tira a otimização do Blip nas configurações do sistema.",
-            color = BoneDim,
-            fontFamily = Display,
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-        )
-        Spacer(Modifier.height(16.dp))
-        SectionLabel("DIÁRIO")
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(
-            Modifier
-                .weight(1f)
-                .clip(PanelShape)
-                .background(Surface)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            items(log.asReversed()) { line ->
-                Text(line, color = BoneDim, fontFamily = Mono, fontSize = 12.sp, modifier = Modifier.padding(vertical = 2.dp))
+        items(log.asReversed()) { line ->
+            Text(
+                localizeDiary(context, line),
+                color = BoneDim,
+                fontFamily = Mono,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(PanelShape)
+                    .background(Surface)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+        item {
+            Spacer(Modifier.height(12.dp))
+            SectionLabel(stringResource(R.string.settings_language))
+        }
+        items(AppLanguages, key = { it.tag }) { languageOption ->
+            val selected = language == languageOption.tag
+            Text(
+                languageOption.native,
+                color = if (selected) Ink else Bone,
+                fontFamily = Display,
+                fontSize = 16.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(Pill)
+                    .background(if (selected) Phosphor else Surface)
+                    .clickable { vm.setLanguage(context, languageOption.tag) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            )
+        }
+        item {
+            Spacer(Modifier.height(16.dp))
+            SectionLabel(stringResource(R.string.name_label))
+            Spacer(Modifier.height(6.dp))
+            BasicTextField(
+                value = draft,
+                onValueChange = { if (it.length <= 32) draft = it },
+                singleLine = true,
+                textStyle = TextStyle(color = Bone, fontFamily = Display, fontSize = 18.sp),
+                cursorBrush = SolidColor(Phosphor),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(PanelShape)
+                    .background(Surface)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+            if (error != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(error ?: "", color = Clay, fontFamily = Display, fontSize = 14.sp)
             }
-        }
-        Text("Blip 0.1.0", color = Bark, fontFamily = Mono, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
-        var panicOpen by remember { mutableStateOf(false) }
-        var panicWord by remember { mutableStateOf("") }
-        Text(
-            "Apagar tudo neste aparelho",
-            color = Clay,
-            fontFamily = Mono,
-            fontSize = 13.sp,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .clickable { panicOpen = true },
-        )
-        if (panicOpen) {
-            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Escreve LIMPAR para apagar chats, salas, mídia e a chave deste aparelho.", color = BoneDim, fontFamily = Display, fontSize = 14.sp)
-                BasicTextField(
-                    value = panicWord,
-                    onValueChange = { panicWord = it },
-                    singleLine = true,
-                    textStyle = TextStyle(color = Bone, fontFamily = Mono, fontSize = 16.sp),
-                    cursorBrush = SolidColor(Clay),
-                    modifier = Modifier.fillMaxWidth().clip(PanelShape).background(Surface).padding(12.dp),
-                )
-                ActionButton("Confirmar pânico", Clay, Bone) {
-                    if (panicWord.trim() == "LIMPAR") vm.panic()
-                }
+            Spacer(Modifier.height(10.dp))
+            ActionButton(stringResource(R.string.save_name), SurfaceHigh, Bone) {
+                error = vm.rename(draft)
             }
+            Spacer(Modifier.height(16.dp))
+            SectionLabel(stringResource(R.string.fingerprint_label))
+            Text(
+                vm.fingerprint,
+                color = Phosphor,
+                fontFamily = Mono,
+                fontSize = 16.sp,
+                lineHeight = 24.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+            Text(
+                stringResource(R.string.panic),
+                color = Clay,
+                fontFamily = Mono,
+                fontSize = 13.sp,
+                modifier = Modifier.clickable {
+                    panicWord = ""
+                    panicOpen = true
+                },
+            )
+            Text(
+                stringResource(R.string.version),
+                color = Bark,
+                fontFamily = Mono,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 12.dp),
+            )
         }
+    }
+    if (panicOpen) {
+        PanicDialog(
+            word = panicWord,
+            onWord = { panicWord = it },
+            onDismiss = { panicOpen = false },
+            onConfirm = {
+                if (panicWord.trim() == "LIMPAR") vm.panic()
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReachChoice(title: String, hint: String, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(PanelShape)
+            .background(if (selected) Phosphor else Surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(title, color = if (selected) Ink else Bone, fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Text(hint, color = if (selected) Ink.copy(alpha = 0.75f) else BoneDim, fontFamily = Display, fontSize = 13.sp, lineHeight = 18.sp)
     }
 }
 
@@ -632,21 +999,28 @@ private fun RoomStrip(
 ) {
     Column(Modifier.padding(bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = Bone, fontFamily = Display, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, modifier = Modifier.weight(1f))
-            Text("Limpar", color = Clay, fontFamily = Mono, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onClear))
+            Text(
+                if (here) stringResource(R.string.here) else title,
+                color = Bone,
+                fontFamily = Display,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 22.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Text(stringResource(R.string.clear), color = Clay, fontFamily = Mono, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onClear))
         }
         androidx.compose.foundation.lazy.LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(top = 8.dp),
         ) {
             item {
-                RoomChip("Aqui", here, onHere)
+                RoomChip(stringResource(R.string.here), here, onHere)
             }
             items(rooms, key = { it.id }) { room ->
                 RoomChip(room.name, !here && title == room.name, { onRoom(room) })
             }
             item {
-                RoomChip("+ Sala", false, onCreate)
+                RoomChip(stringResource(R.string.new_room), false, onCreate)
             }
         }
     }
@@ -696,7 +1070,7 @@ private fun RoomDialog(
                 modifier = Modifier.fillMaxWidth().clip(Pill).background(Night).padding(12.dp),
                 decorationBox = { inner ->
                     Box {
-                        if (name.isEmpty()) Text("Nome da sala", color = BoneDim, fontFamily = Display)
+                        if (name.isEmpty()) Text(stringResource(R.string.room_name_hint), color = BoneDim, fontFamily = Display)
                         inner()
                     }
                 },
@@ -711,14 +1085,14 @@ private fun RoomDialog(
             modifier = Modifier.fillMaxWidth().clip(Pill).background(Night).padding(12.dp),
             decorationBox = { inner ->
                 Box {
-                    if (password.isEmpty()) Text(if (passwordOnly) "Senha" else "Senha, se quiser", color = BoneDim, fontFamily = Display)
+                    if (password.isEmpty()) Text(if (passwordOnly) stringResource(R.string.room_password) else stringResource(R.string.room_password_optional), color = BoneDim, fontFamily = Display)
                     inner()
                 }
             },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionButton("Cancelar", Surface, Bone, onDismiss)
-            ActionButton("Entrar", Phosphor, Ink) { onConfirm(name, password) }
+            ActionButton(stringResource(R.string.cancel), Surface, Bone, onDismiss)
+            ActionButton(stringResource(R.string.join), Phosphor, Ink) { onConfirm(name, password) }
         }
     }
 }
@@ -757,7 +1131,7 @@ private fun toggleMic(
 ) {
     if (capture.active) {
         val take = capture.stop()
-        if (take != null) onTake(take) else onError("Segura um pouco mais.")
+        if (take != null) onTake(take) else onError(context.getString(R.string.hold_longer))
         return
     }
     val granted = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -768,5 +1142,5 @@ private fun toggleMic(
         permission.launch(android.Manifest.permission.RECORD_AUDIO)
         return
     }
-    if (!capture.start()) onError("Não consegui abrir o microfone.")
+    if (!capture.start()) onError(context.getString(R.string.mic_fail))
 }

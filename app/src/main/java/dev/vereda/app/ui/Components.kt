@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.vereda.app.R
 import dev.vereda.app.data.MessageEntity
 import dev.vereda.core.RadioPhase
 import java.time.Instant
@@ -61,12 +63,13 @@ fun formatTime(epoch: Long): String {
     return Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()).format(clock)
 }
 
+@Composable
 fun statusLabel(message: MessageEntity): String? {
     if (!message.outgoing) return null
     return when (message.status) {
-        "pending" -> "a caminho"
-        "delivered" -> "entregue"
-        "failed" -> "não saiu"
+        "pending" -> stringResource(R.string.status_pending)
+        "delivered" -> stringResource(R.string.status_delivered)
+        "failed" -> stringResource(R.string.status_failed)
         else -> null
     }
 }
@@ -85,10 +88,11 @@ fun Lamp(phase: RadioPhase, links: Int, modifier: Modifier = Modifier) {
         RadioPhase.OFF -> BoneDim
         else -> Phosphor
     }
+    val radioState = stringResource(R.string.cd_radio_state)
     Canvas(
         modifier
             .size(8.dp)
-            .semantics { contentDescription = "estado do rádio" },
+            .semantics { contentDescription = radioState },
     ) {
         drawCircle(color.copy(alpha = if (searching) pulse else 1f))
     }
@@ -133,7 +137,7 @@ fun TranscriptLine(
                 if (status != null) {
                     Text(
                         status,
-                        color = if (status == "não saiu") Clay else BoneDim,
+                        color = BoneDim,
                         fontFamily = Mono,
                         fontSize = 10.sp,
                         modifier = Modifier.padding(end = 8.dp),
@@ -179,13 +183,14 @@ fun Composer(
                 }
             },
         )
+        val sendLabel = stringResource(R.string.cd_send)
         Box(
             Modifier
                 .padding(start = 8.dp)
                 .size(44.dp)
                 .clip(CircleShape)
                 .background(Phosphor)
-                .semantics { contentDescription = "Enviar" }
+                .semantics { contentDescription = sendLabel }
                 .clickable(onClick = onSend),
             contentAlignment = Alignment.Center,
         ) {
@@ -232,7 +237,7 @@ fun MessageCard(message: MessageEntity, name: String, mine: Boolean, onWave: (St
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap!!,
-                            contentDescription = "Imagem",
+                            contentDescription = stringResource(R.string.cd_image),
                             modifier = Modifier
                                 .padding(top = 8.dp)
                                 .fillMaxWidth()
@@ -256,7 +261,7 @@ fun MessageCard(message: MessageEntity, name: String, mine: Boolean, onWave: (St
             val status = statusLabel(message)
             Row(Modifier.align(Alignment.End).padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (status != null) {
-                    Text(status, color = if (status == "não saiu") Clay else BoneDim, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp))
+                    Text(status, color = if (message.status == "failed") Clay else BoneDim, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.padding(end = 8.dp))
                 }
                 Text(formatTime(message.sentAt), color = BoneDim, fontFamily = Mono, fontSize = 10.sp)
             }

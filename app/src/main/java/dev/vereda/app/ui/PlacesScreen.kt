@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import dev.vereda.app.R
 import dev.vereda.core.Geohash
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +61,7 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 
-private val levels = listOf(2 to "País", 4 to "Estado", 5 to "Cidade", 6 to "Bairro")
+
 
 @Composable
 private fun Coverage(
@@ -191,7 +193,7 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
     fun search() {
         val clean = query.trim()
         if (clean.length < 2) {
-            note = "Escreve um país, uma cidade ou um bairro."
+            note = context.getString(R.string.search_need)
             return
         }
         focus.clearFocus()
@@ -208,8 +210,8 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
             }
             looking = false
             when {
-                found == null -> note = "Sem rede para buscar."
-                found.isEmpty() -> note = "Não achei esse lugar."
+                found == null -> note = context.getString(R.string.search_offline)
+                found.isEmpty() -> note = context.getString(R.string.search_none)
                 else -> hits = found
             }
         }
@@ -236,9 +238,9 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ScreenTitle("LUGARES", "Mapa")
+        ScreenTitle(stringResource(R.string.places_kicker), stringResource(R.string.places_title))
         Text(
-            "O pin marca o lugar. A área verde é o que essa sala cobre.",
+            stringResource(R.string.places_help),
             color = BoneDim,
             fontFamily = Display,
             fontSize = 15.sp,
@@ -264,14 +266,14 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
                 decorationBox = { inner ->
                     Box {
                         if (query.isEmpty()) {
-                            Text("País, cidade ou bairro", color = BoneDim, fontFamily = Display, fontSize = 16.sp)
+                            Text(stringResource(R.string.search_hint), color = BoneDim, fontFamily = Display, fontSize = 16.sp)
                         }
                         inner()
                     }
                 },
             )
             Text(
-                if (looking) "…" else "Buscar",
+                if (looking) "…" else stringResource(R.string.search),
                 color = Ink,
                 fontFamily = Mono,
                 fontSize = 12.sp,
@@ -341,7 +343,12 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            levels.forEach { (value, label) ->
+            listOf(
+                2 to stringResource(R.string.country),
+                4 to stringResource(R.string.state),
+                5 to stringResource(R.string.city),
+                6 to stringResource(R.string.neighborhood),
+            ).forEach { (value, label) ->
                 Text(
                     label,
                     color = if (precision == value) Ink else Bone,
@@ -360,7 +367,7 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
             }
         }
         Text(
-            placeName.ifBlank { "Arrasta o mapa" },
+            placeName.ifBlank { stringResource(R.string.drag_map) },
             color = Bone,
             fontFamily = Display,
             fontSize = 16.sp,
@@ -369,7 +376,7 @@ fun PlacesScreen(vm: RadioViewModel, onOpenChannel: () -> Unit) {
         )
         Text(hash, color = Phosphor, fontFamily = Mono, fontSize = 13.sp)
         Text(
-            "Falar deste lugar",
+            stringResource(R.string.talk_place),
             color = Ink,
             fontFamily = Display,
             fontSize = 16.sp,

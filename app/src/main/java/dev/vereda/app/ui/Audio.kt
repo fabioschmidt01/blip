@@ -34,10 +34,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.vereda.app.R
 import dev.vereda.app.data.MessageEntity
 import dev.vereda.core.Waveform
 import java.io.File
@@ -266,7 +268,7 @@ object AudioPeaks {
     }
 }
 
-private object VoicePlayback {
+internal object VoicePlayback {
     var activePath by mutableStateOf<String?>(null)
     var playing by mutableStateOf(false)
     var progress by mutableStateOf(0f)
@@ -274,18 +276,37 @@ private object VoicePlayback {
     private var ticker: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    fun play(path: String) {
+        if (activePath == path && playing) return
+        if (activePath == path && player != null) {
+            try {
+                player?.seekTo(0)
+                player?.start()
+                playing = true
+                player?.let { tick(it) }
+            } catch (_: Exception) {
+            }
+            return
+        }
+        toggle(path)
+    }
+
     fun toggle(path: String) {
         if (!File(path).exists()) return
         val current = player
         if (activePath == path && current != null) {
-            if (playing) {
-                current.pause()
-                playing = false
-                ticker?.cancel()
-            } else {
-                current.start()
-                playing = true
-                tick(current)
+            try {
+                if (playing) {
+                    current.pause()
+                    playing = false
+                    ticker?.cancel()
+                } else {
+                    current.start()
+                    playing = true
+                    tick(current)
+                }
+            } catch (_: Exception) {
+                release()
             }
             return
         }
@@ -408,6 +429,7 @@ fun AudioMessage(message: MessageEntity, mine: Boolean, onWave: (String, String)
     val playing = isThis && VoicePlayback.playing
     val held = if (isThis) VoicePlayback.progress else 0f
     val showHead = playing || (isThis && held > 0.01f)
+    val playLabel = stringResource(if (playing) R.string.cd_pause else R.string.cd_play)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
@@ -415,7 +437,7 @@ fun AudioMessage(message: MessageEntity, mine: Boolean, onWave: (String, String)
                 .size(36.dp)
                 .clip(CircleShape)
                 .background(if (mine) Phosphor else SurfaceHigh)
-                .semantics { contentDescription = if (playing) "Pausar" else "Ouvir áudio" }
+                .semantics { contentDescription = playLabel }
                 .clickable(enabled = path != null) { if (path != null) VoicePlayback.toggle(path) },
             contentAlignment = Alignment.Center,
         ) {
